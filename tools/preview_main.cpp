@@ -17,6 +17,7 @@
 #include <QPainter>
 #include <QString>
 #include <QStringList>
+#include <cstdio>
 
 using namespace ForecastView;
 
@@ -81,13 +82,47 @@ save(const QImage& widget, const QString& path)
     out.save(path);
 }
 
+/* tabAt() is fraction-based so it survives the feed scaling the widget; that
+ * is exactly the kind of arithmetic that cannot be checked on the device. */
+static int
+checkTabs()
+{
+    struct Case { qreal x, y, w, h; int want; const char *what; };
+    const int tabsTop = 146, tabsH = 48, h0 = Height;   /* see forecastview.cpp */
+    const Case cases[] = {
+        { 100, tabsTop + 10,        480, h0, TabHours, "left tab, full size" },
+        { 300, tabsTop + 10,        480, h0, TabDays,  "right tab, full size" },
+        { 100, 10,                  480, h0, -1,       "header" },
+        { 100, tabsTop - 2,         480, h0, -1,       "just above the tabs" },
+        { 100, tabsTop + tabsH + 2, 480, h0, -1,       "first forecast row" },
+        { 100, h0 - 10,             480, h0, -1,       "last row" },
+        /* the same taps after the feed scaled the widget to 400 wide */
+        {  83, (tabsTop + 10) * 400 / 480.0, 400, h0 * 400 / 480.0, TabHours, "left tab, scaled" },
+        { 250, (tabsTop + 10) * 400 / 480.0, 400, h0 * 400 / 480.0, TabDays,  "right tab, scaled" },
+        {  83, (tabsTop + tabsH + 6) * 400 / 480.0, 400, h0 * 400 / 480.0, -1, "first row, scaled" },
+        { 100, tabsTop + 10,          0,  0, -1,       "degenerate size" },
+    };
+    int bad = 0;
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+        const Case& c = cases[i];
+        const int got = tabAt(c.x, c.y, c.w, c.h);
+        if (got != c.want) {
+            fprintf(stderr, "tabAt FAIL: %s -> %d, wanted %d\n", c.what, got, c.want);
+            ++bad;
+        }
+    }
+    fprintf(stderr, "tabAt: %s (%d cases)\n", bad ? "FAILED" : "all cases pass",
+            (int)(sizeof(cases) / sizeof(cases[0])));
+    return bad;
+}
+
 int
 main(int argc, char **argv)
 {
     QGuiApplication app(argc, argv);
     const QStringList a = app.arguments();
     if (a.size() < 4) {
-        qWarning("usage: preview <images-dir> <iconset-dir> <out-prefix>");
+        fprintf(stderr, "usage: preview <images-dir> <iconset-dir> <out-prefix>\n");
         return 2;
     }
     const QString iconset = a.at(2);
@@ -101,6 +136,6 @@ main(int argc, char **argv)
     empty.station = "Wien";
     save(render(empty, TabHours), prefix + "-nodata.png");
 
-    qWarning("widget is %dx%d", Width, Height);
-    return 0;
+    fprintf(stderr, "widget is %dx%d\n", Width, Height);
+    return checkTabs() ? 1 : 0;
 }

@@ -64,9 +64,16 @@ the widget and the app never disagree:
 
 | list  | rule |
 | --- | --- |
-| days | `GetDataForTime(midnight + 15h + n*24h)`, n = 0..7 |
+| days | `GetDataForTime(midnight + 15h + 1s + n*24h)`, n = 0..7 |
 | nights | `GetDataForTime(midnight + 3h + n*24h)` |
 | hours | `GetDataForTime(current_hour + n*3600, true)` where `StartTime()+60` matches, over 5 days |
+
+`midnight` there is the **station's** midnight, not the phone's: controller.cpp
+shifts into the station's zone, truncates the day with `gmtime`, then shifts
+back through the phone's own offset. Using plain local midnight instead puts
+the tile's "Today" on a different period than the app's first day row whenever
+the two zones differ. `current_hour` on the other hand really is the phone's,
+`localtime` with `tm_min = 1`.
 
 ## Building
 
@@ -146,20 +153,35 @@ Alternating row shading was tried this way and dropped: even a wash light
 enough not to fight the feed's backdrop made the text on every second line
 read as bold.
 
+The preview binary also unit-tests `tabAt()`, which decides whether a tap hit
+a tab header. It works in fractions of the widget's actual size rather than
+image pixels, because `MImageWidget` scales the image to whatever width the
+feed grants the extension -- a test in 480-space would drift far enough on a
+narrower feed to put the tab band over the first forecast row. That is not
+observable on the device until it misbehaves, hence the test.
+
 ## Packaging
 
     tools/build-plugin.sh
+    tools/mkdeb.sh --qml-only   # -> build/meecast-wind-qml_1.0_all.deb
     tools/mkdeb.sh              # -> build/meecast-wind_1.0_armel.deb
 
+Two packages on purpose, and they conflict with each other. The QML half is
+the low-risk one: Aegis does not validate it and a mistake is visible in the
+app. The plugin replaces the Events view tile, so if the rebuilt `.so` fails
+to load the tile disappears, which is worse than stock -- keep it installable
+on its own once the QML half is known good.
+
 `Replaces: meecast` is what lets dpkg lay these files over ones the stock
-package owns. `tools/mkdeb.py` is the Harmattan packager from the Snapszer
+package owns. To go back to stock, reinstall `meecast_1.1.33_armel.deb`. `tools/mkdeb.py` is the Harmattan packager from the Snapszer
 port: Harmattan's dpkg is 1.15.x, so members must be `debian-binary`,
 `control.tar.gz`, `data.tar.gz`, gzip only, and without GNU ar's trailing
 slash on member names.
 
 On the phone:
 
-    devel-su dpkg -i meecast-wind_1.0_armel.deb
+    devel-su dpkg -i meecast-wind-qml_1.0_all.deb     # app lists only
+    devel-su dpkg -i meecast-wind_1.0_armel.deb       # and the Events view
     killall mapplicationextensionrunner    # or reboot, to reload the extension
 
 ## Status

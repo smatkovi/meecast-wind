@@ -87,7 +87,7 @@ iconPath(Core::Config *config, Core::Data *d)
 }
 
 /* "18", or "18/9" when a period only carries a range, as the daily ones do.
- * The degree sign is added by the renderer. */
+ */
 static QString
 temperatureString(Core::Data *d, const std::string& unit, bool range)
 {
@@ -185,11 +185,28 @@ read()
     }
 
     /* Days and hours are picked exactly as qt-qml/controller.cpp does it, so
-     * the widget lists the same periods the application lists. */
+     * the widget lists the same periods the application lists.
+     *
+     * Midnight is the station's midnight, not the phone's: the day rows of a
+     * station in another time zone would otherwise be shifted against the
+     * application's. The arithmetic below is controller.cpp's, quirks and all
+     * -- it converts into the station's zone, truncates the day there, then
+     * converts back through the phone's own offset. */
+    int timezone = dp->timezone();
+    struct tm utc_tm;
+    struct tm local_tm;
     time_t now = time(NULL);
-    struct tm *tmp = localtime(&now);
-    tmp->tm_sec = 0; tmp->tm_min = 0; tmp->tm_hour = 0; tmp->tm_isdst = 1;
-    const time_t midnight = mktime(tmp);
+    gmtime_r(&now, &utc_tm);
+    localtime_r(&now, &local_tm);
+    utc_tm.tm_isdst = 0;
+    local_tm.tm_isdst = 0;
+    const int localtimezone = (mktime(&local_tm) - mktime(&utc_tm)) / 3600;
+
+    time_t midnight = time(NULL) + 3600 * timezone;
+    struct tm *tmp = gmtime(&midnight);
+    tmp->tm_sec = 0; tmp->tm_min = 0; tmp->tm_hour = 0;
+    tmp->tm_isdst = 0;
+    midnight = mktime(tmp) - 3600 * timezone + 3600 * localtimezone;
 
     for (int day = 0; day < RowCount; ++day) {
         const time_t t = midnight + 15 * 3600 + 1 + (time_t)day * 24 * 3600;
@@ -207,7 +224,7 @@ read()
     now = time(NULL);
     tmp = localtime(&now);
     tmp->tm_sec = 0; tmp->tm_min = 1; tmp->tm_isdst = 1;
-    const time_t currentHour = mktime(tmp);
+    const time_t currentHour = mktime(tmp);   /* the phone's hour, as the app does */
 
     for (int i = 0; out.hours.size() < RowCount && i < 5 * 24 * 3600; i += 3600) {
         Core::Data *d = dp->data().GetDataForTime(currentHour + i, true);

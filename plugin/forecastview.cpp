@@ -75,6 +75,24 @@ tabRect(int tab)
     return QRect(tab * w, TabsTop, w, TabsH);
 }
 
+int
+tabAt(qreal x, qreal y, qreal widgetWidth, qreal widgetHeight)
+{
+    if (widgetWidth <= 0 || widgetHeight <= 0)
+        return -1;
+
+    const qreal fy = y / widgetHeight;
+    if (fy < (qreal)TabsTop / Height || fy >= (qreal)(TabsTop + TabsH) / Height)
+        return -1;
+
+    const qreal fx = x / widgetWidth;
+    if (fx < 0 || fx >= 1)
+        return -1;
+
+    const int tab = (int)(fx * TabCount);
+    return (tab < 0 || tab >= TabCount) ? -1 : tab;
+}
+
 /* -- helpers -------------------------------------------------------------- */
 
 /* Icons would otherwise be re-read and rescaled on every repaint; the lists

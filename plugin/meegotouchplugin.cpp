@@ -658,14 +658,15 @@ void MyMWidget::mouseReleaseEvent(QGraphicsSceneMouseEvent *event){
     }
     _down = false;
 
-    /* The image is a child widget, so put the tap into its coordinates before
-     * testing it against the tab rectangles. */
-    QPointF p = event->pos();
-    if (_icon)
-        p = _icon->mapFromParent(event->pos());
-
-    for (int t = 0; t < ForecastView::TabCount; ++t){
-        if (ForecastView::tabRect(t).contains(p.toPoint())){
+    /* Without data no tabs are drawn, so every tap opens the application. */
+    if (_icon && _forecast.valid){
+        /* The image is a child widget, and the feed may have scaled it, so
+         * ask against the size it actually has rather than image pixels. */
+        const QPointF p = _icon->mapFromParent(event->pos());
+        const int t = ForecastView::tabAt(p.x(), p.y(),
+                                          _icon->size().width(),
+                                          _icon->size().height());
+        if (t >= 0){
             if (t != _tab){
                 _tab = t;
                 QSettings settings(TAB_SETTINGS_PATH, QSettings::NativeFormat);

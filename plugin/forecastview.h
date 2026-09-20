@@ -88,8 +88,16 @@ namespace ForecastView {
      * name and a short notice, so tapping still opens the application. */
     QImage render(const Data& data, int activeTab);
 
-    /* Where the tab headers ended up, for hit-testing a tap. */
+    /* Where the tab headers ended up, in image coordinates. */
     QRect tabRect(int tab);
+
+    /* Which tab a tap landed on, or -1 for anywhere else.
+     *
+     * Takes the tap and the widget's actual size rather than image pixels:
+     * MImageWidget scales the image to whatever width the Events feed grants
+     * the extension, and a test in 480-space would drift -- far enough, on a
+     * narrower feed, to put the tab band over the first forecast row. */
+    int tabAt(qreal x, qreal y, qreal widgetWidth, qreal widgetHeight);
 
 } // namespace ForecastView
 
