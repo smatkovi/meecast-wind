@@ -13,8 +13,16 @@ CONFIG += plugin \
 
 MOBILITY = publishsubscribe
 
-HEADERS = meegotouchplugin.h dbusadaptor.h eventfeedif.h  weatherdataif.h
-SOURCES = meegotouchplugin.cpp dbusadaptor.cpp eventfeedif.cpp  weatherdataif.cpp
+HEADERS = meegotouchplugin.h dbusadaptor.h eventfeedif.h  weatherdataif.h forecastview.h
+SOURCES = meegotouchplugin.cpp dbusadaptor.cpp eventfeedif.cpp  weatherdataif.cpp forecastview.cpp forecastread.cpp
+
+# The Events view reads the forecast cache itself, so it needs Core -- the same
+# static library and the same dependencies predaemon links against.
+QT += xml
+INCLUDEPATH += ../core
+LIBS += ../core/libomweather-core.a
+PKGCONFIG += libcurl
+PKGCONFIG += sqlite3
 
 
 TARGET = $$qtLibraryTarget(events-meecast)
@@ -40,3 +48,7 @@ datasmallcontour.path = /opt/com.meecast.omweather/share/images/smallcontour
 contextreg.files = data/meecast.context
 contextreg.path = /usr/share/contextkit/providers
 INSTALLS += contextreg
+
+# mmoc is not given the sysroot prefix that the g++ wrapper applies to
+# -I/usr/include/meegotouch, and then fails with "Undefined interface".
+INCLUDEPATH += $$[QT_INSTALL_HEADERS]/../meegotouch

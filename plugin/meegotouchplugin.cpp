@@ -33,6 +33,13 @@
 #include "eventfeedif.h"
 #include "weatherdataif.h"
 #include <QThread>
+#include <QSettings>
+#include <QGraphicsSceneMouseEvent>
+
+/* The selected tab lives next to the application's own settings so it
+ * survives a reboot and an upgrade of this package. */
+static const char *TAB_SETTINGS_PATH =
+    "/home/user/.config/com.meecast.omweather/eventsview.conf";
 
 // Debug
 #include <QFile>
@@ -323,11 +330,18 @@ MyMWidget::MyMWidget(){
       _timer->setSingleShot(true);
       _down = false;
       
-      /* preparing for events widget */ 
+      /* preparing for events widget */
       QGraphicsAnchorLayout *layout = new QGraphicsAnchorLayout();
-      _events_image = new QImage (QSize(127, 96), QImage::Format_ARGB32);
-      _events_image->load("/opt/com.meecast.omweather/share/iconsets/Meecast/49.png");
-      *_events_image = _events_image->scaled(127, 96);
+      {
+          QSettings settings(TAB_SETTINGS_PATH, QSettings::NativeFormat);
+          _tab = settings.value("tab", ForecastView::TabHours).toInt();
+          if (_tab < 0 || _tab >= ForecastView::TabCount)
+              _tab = ForecastView::TabHours;
+      }
+      /* Read the cache straight away: the widget must be complete before the
+       * first SetCurrentData arrives, which may be a whole update period off. */
+      reloadforecast();
+      _events_image = new QImage(ForecastView::render(_forecast, _tab));
       _icon = new MImageWidget(_events_image);
       grabMouse();
 
@@ -420,6 +434,9 @@ MyMWidget::SetCurrentData(const QString &station, const QString &temperature,
    this->standbyscreen(standbyscreen_param);
    this->lastupdate(last_update);
    this->description(description);
+   /* The call itself carries only the current item; take it as word that the
+    * cache on disk has been rewritten and read the whole forecast again. */
+   this->reloadforecast();
    this->refreshview();
 
    /* ContexKit */
@@ -616,49 +633,51 @@ void MyMWidget::refreshwallpaper(bool new_wallpaper){
         QFuture<void> f1 =  QtConcurrent::run(drawwallpaper, QImage(_image->copy()), QHash <QString, QString> (hash));
     }
 
+/* The Events view widget. Station, current conditions with wind, a pair of
+ * tabs and eight rows of either the hourly or the daily forecast, each with
+ * its own wind. Everything but the tab selection comes from the forecast
+ * cache, read in reloadforecast(). */
 void MyMWidget::refresheventswidget(){
-    /* Left corner */
-     int x = 0;
-     int y = 0;
+     *_events_image = ForecastView::render(_forecast, _tab);
+     _icon->setImage(*_events_image);
+}
 
-     QPainter paint;
-     _events_image->fill(Qt::transparent);
-     paint.begin(_events_image);
-     QPen pen;
+void MyMWidget::reloadforecast(){
+     _forecast = ForecastView::read();
+}
 
-     QColor myPenColor = QColor(255, 255, 255, 255);// set default color
-     pen.setColor(myPenColor);
-     paint.setPen(pen);
+void MyMWidget::mousePressEvent(QGraphicsSceneMouseEvent *event){
+    Q_UNUSED(event);
+    _down = true;
+}
 
-	 /* Station */
-	 paint.setFont(QFont("Nokia Pure", 12));
-	 // paint.setFont(QFont("Nokia Pure Light", 14));
-	 paint.drawText( x , y, 127, 21, Qt::AlignHCenter, _stationname.mid(0, 14));
+void MyMWidget::mouseReleaseEvent(QGraphicsSceneMouseEvent *event){
+    if (!_down){
+        _down = false;
+        return;
+    }
+    _down = false;
 
-     /* Icon */
-     QPoint point(x + 50, y + 19);
-     QImage icon;
-     icon.load(_iconpath);
-     icon = icon.scaled(72, 72);
-     paint.drawImage(point, icon); 
-        
-	 /* Temperature */
-	 paint.setFont(QFont("Nokia Pure", 20));
-	 if (_temperature == "N/A" || _temperature == ""){
-                QString temp_string = _temperature_high + QString::fromUtf8("°");
-                paint.drawText(x, y + 20, 60, 50, Qt::AlignHCenter, temp_string); 
-                temp_string = _temperature_low + QString::fromUtf8("°");
-                paint.drawText(x, y + 55, 60, 50, Qt::AlignHCenter, temp_string); 
-	  }else{
-		 if (_current)
-			paint.setFont(QFont("Nokia Pure Bold", 21));
-         QString temp_string = _temperature + QString::fromUtf8("°");
-	     paint.drawText(x, y + 35, 60, 48, Qt::AlignHCenter, temp_string); 
-	  }
+    /* The image is a child widget, so put the tap into its coordinates before
+     * testing it against the tab rectangles. */
+    QPointF p = event->pos();
+    if (_icon)
+        p = _icon->mapFromParent(event->pos());
 
-	  paint.end();
-          _icon->setImage(*_events_image);
+    for (int t = 0; t < ForecastView::TabCount; ++t){
+        if (ForecastView::tabRect(t).contains(p.toPoint())){
+            if (t != _tab){
+                _tab = t;
+                QSettings settings(TAB_SETTINGS_PATH, QSettings::NativeFormat);
+                settings.setValue("tab", _tab);
+                settings.sync();
+                refresheventswidget();
+            }
+            return;
+        }
+    }
 
+    startapplication();
 }
 
 void MyMWidget::refreshstandby(){

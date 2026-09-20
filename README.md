@@ -110,14 +110,72 @@ This is a syntax check only. Layout and real data still need the device.
 * **Reinstalling `meecast` overwrites this patch.** Reinstall the patch deb
   afterwards.
 
+## The Events view widget
+
+480 x 468, drawn into one `QImage` allocated once: station and time of the
+last update, the current conditions with wind, two tab headers, then eight
+rows of either the hourly or the daily forecast, each with its own wind. A tap
+on a tab header switches lists, a tap anywhere else opens MeeCast as before.
+The choice is remembered in
+`~/.config/com.meecast.omweather/eventsview.conf`.
+
+No MButton and no CSS: the stock `meecast-extension.css` is never installed,
+so the tile takes its size from the image alone, and hit-testing two
+rectangles in `mouseReleaseEvent` is the least that can go wrong inside the
+home screen process. Horizontal swipes are left alone -- the home screen owns
+those.
+
+`gettext` is used as `dgettext("omweather", ...)`, never `textdomain()`: this
+is a shared library inside the home screen process and switching the
+process-wide domain would break every other extension loaded beside it.
+
+## Looking at the widget without the device
+
+    tools/extract-deb.sh        # artwork out of the stock deb
+    tools/preview.sh            # -> build/preview-{hours,days,nodata}.png
+
+`forecastview.cpp` (drawing) deliberately depends on nothing but QtGui, and
+`forecastread.cpp` (Core) is separate, so the shipped drawing code compiles
+against a desktop Qt and renders the widget to a PNG with made-up data. A
+MeeGoTouch application extension cannot run anywhere but the device -- the Qt
+Simulator has no Events view -- so this is the only way to see the layout
+before packaging. Fonts differ ("Nokia Pure" is not installed on a desktop),
+so it checks composition, not pixels.
+
+Alternating row shading was tried this way and dropped: even a wash light
+enough not to fight the feed's backdrop made the text on every second line
+read as bold.
+
+## Packaging
+
+    tools/build-plugin.sh
+    tools/mkdeb.sh              # -> build/meecast-wind_1.0_armel.deb
+
+`Replaces: meecast` is what lets dpkg lay these files over ones the stock
+package owns. `tools/mkdeb.py` is the Harmattan packager from the Snapszer
+port: Harmattan's dpkg is 1.15.x, so members must be `debian-binary`,
+`control.tar.gz`, `data.tar.gz`, gzip only, and without GNU ar's trailing
+slash on member names.
+
+On the phone:
+
+    devel-su dpkg -i meecast-wind_1.0_armel.deb
+    killall mapplicationextensionrunner    # or reboot, to reload the extension
+
 ## Status
 
-* [x] `WindRow.qml`, wired into the day list and the hourly list. Syntax
-      checked; **not yet seen on the device** -- the N9 was unreachable.
+* [x] `WindRow.qml`, wired into the day list and the hourly list.
 * [x] Plugin source recovered, version pinned, toolchain proven on the
-      pristine source.
-* [ ] Events view: read the cache, day/hourly tabs, wind on every row.
-* [ ] Patch deb.
-* [ ] Confirm on the device that openweathermap.org actually fills
-      `wind_speed`/`wind_direction` on **hourly** periods -- the hourly rows
-      depend on it. `cat ~/.config/com.meecast.omweather/openweathermap.org_*`
+      pristine source (stripped: 110,928 bytes against the shipped 107,624,
+      identical `NEEDED`).
+* [x] Events view: reads the cache, hourly/daily tabs, wind on every row.
+      Layout reviewed in the desktop preview.
+* [x] Patch deb builds: `meecast-wind_1.0_armel.deb`.
+* [ ] **Nothing has run on the N9 yet** -- it was unreachable for this whole
+      session (`No route to host`). Everything below is unverified.
+* [ ] Confirm openweathermap.org actually fills `wind_speed` /
+      `wind_direction` on **hourly** periods; the hourly rows and the hourly
+      tab both depend on it:
+      `cat ~/.config/com.meecast.omweather/openweathermap.org_*`
+* [ ] Confirm the new plugin loads at all (Aegis, and Core being linked into
+      the home screen process) and that the tile is not clipped by the feed.

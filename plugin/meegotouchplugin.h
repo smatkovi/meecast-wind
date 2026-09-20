@@ -42,6 +42,7 @@
 #include <QDate>
 #include <QTimer>
 #include <QNetworkConfigurationManager>
+#include "forecastview.h"
 
 // Debug
 /*
@@ -89,25 +90,24 @@ private:
     MImageWidget *_icon;
     QImage *_events_image;
     bool _down;
+    ForecastView::Data _forecast;
+    int _tab;                 /* ForecastView::Tab, remembered across restarts */
 public:
 
     MyMWidget();
     ~MyMWidget();
    
-    void
-    mousePressEvent(QGraphicsSceneMouseEvent *event){
-        _down = true;
-    }
-
-    void
-    mouseReleaseEvent(QGraphicsSceneMouseEvent *event){
-        if (_down)
-           startapplication();
-        _down = false;
-    }
+    /* Out of line since the release has to tell a tap on a tab header apart
+     * from a tap anywhere else, which opens the application as before. */
+    void mousePressEvent(QGraphicsSceneMouseEvent *event);
+    void mouseReleaseEvent(QGraphicsSceneMouseEvent *event);
 
     void refreshwallpaper(bool new_wallpaper = false);
     void refresheventswidget(void);
+
+    /* Re-reads the forecast cache. SetCurrentData is the signal that it was
+     * rewritten; the data itself comes from Core, not over D-Bus. */
+    void reloadforecast(void);
     void refreshstandby(void);
 
     Q_INVOKABLE void startapplication(){
