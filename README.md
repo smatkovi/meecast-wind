@@ -184,6 +184,13 @@ On the phone:
     devel-su dpkg -i meecast-wind_1.0_armel.deb       # and the Events view
     killall mapplicationextensionrunner    # or reboot, to reload the extension
 
+## Licence
+
+MeeCast is GPL and this is a derived work: the recovered plugin sources keep
+their upstream headers ("either version 2.1 of the License, or (at your
+option) any later version"), and the new files here follow them. `orig/` holds
+the pristine 1.1.33 QML so `diff orig qml` shows exactly what was changed.
+
 ## Status
 
 * [x] `WindRow.qml`, wired into the day list and the hourly list.
