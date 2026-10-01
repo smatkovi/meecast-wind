@@ -38,8 +38,12 @@
 
 #include <QDateTime>
 #include <QFile>
+#include <QDBusConnection>
+#include <QDBusInterface>
+#include <QDBusReply>
 #include <QStringList>
 #include <QTextStream>
+#include <QVariantMap>
 #include <MNotification>
 
 #include <libintl.h>
@@ -692,35 +696,80 @@ feedline(const ForecastView::Row& r, const QString& unit)
     return s;
 }
 
-/* One item in the events feed, created on the first update and rewritten
- * afterwards.
+/* The feed in the Events view: com.nokia.home.EventFeed on the session bus.
  *
- * Found by identifier rather than by a stored id: notifications outlive the
- * process and a reboot, and MNotification::notifications() is the only thing
- * that still knows them afterwards. Keeping an id in a file instead would
- * leave a second item behind every time the file and the system disagreed.
+ * Shaped like the calendar's entry, which is the one the user pointed at: a
+ * single item whose body is several lines of HTML, each a coloured bar and
+ * then grey text, separated by <br />. Read straight out of the live feed
+ * (sourceName SyncFW-calendarfeed):
+ *
+ *   <font color='#63B33B'>&#x2503;</font><font color='#A0A0A0'>08.10 19:00
+ *   Probe&#x2026;</font><br />...
+ *
+ * Non-breaking spaces inside a line, so a line breaks between entries and
+ * never in the middle of "3 m/s SW".
+ *
+ * `addItem` answers -1 and says nothing more when a single key is missing or
+ * carries the wrong type -- nothing appears, nowhere an error. The full set
+ * below is therefore not decoration; it is the same one the Mastodon feed
+ * daemon uses (see ~/ps/mastodon-feed, daemon/src/feed.rs).
  */
-static void
-publishfeeditem(const QString& identifier, const QString& summary,
-                const QString& body, const QString& image)
+static const char *FEED_SOURCE = "meecast";
+
+static QDBusInterface *
+feedinterface()
 {
-    MNotification *mine = 0;
+    static QDBusInterface iface("com.nokia.home.EventFeed", "/eventfeed",
+                                "com.nokia.home.EventFeed",
+                                QDBusConnection::sessionBus());
+    return &iface;
+}
+
+/* One line of the body, in the calendar's shape. */
+static QString
+feedrow(const QString& text)
+{
+    QString geschuetzt = text;
+    geschuetzt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    geschuetzt.replace(" ", QString::fromUtf8("\xc2\xa0"));
+    return QString("<font color='#4FA3DD'>&#x2503;</font>"
+                   "<font color='#A0A0A0'>%1</font>").arg(geschuetzt);
+}
+
+static void
+addfeeditem(const QString& title, const QString& body, const QString& icon,
+            const QString& footer, const QString& timestamp)
+{
+    QVariantMap d;
+    d["icon"]              = icon;
+    d["title"]             = title;
+    d["body"]              = body;
+    d["imageList"]         = QStringList();
+    d["timestamp"]         = timestamp;
+    d["footer"]            = footer;
+    d["video"]             = false;
+    d["action"]            = QString();
+    d["sourceName"]        = QString(FEED_SOURCE);
+    d["sourceDisplayName"] = QString("MeeCast");
+
+    QDBusReply<qlonglong> reply = feedinterface()->call("addItem", d);
+    eventslog(QString("feed addItem '%1' -> %2")
+              .arg(title).arg(reply.isValid() ? QString::number(reply.value())
+                                              : QString("Fehler")));
+}
+
+/* Notifications are what 1.3 used, before the feed turned out to be the
+ * right place. Drop them once, or they would sit there forever. */
+static void
+dropoldnotifications()
+{
     QList<MNotification *> all = MNotification::notifications();
     for (int i = 0; i < all.size(); ++i) {
-        if (!mine && all.at(i)->identifier() == identifier)
-            mine = all.at(i);
-        else
-            delete all.at(i);
+        MNotification *n = all.at(i);
+        if (n->identifier() == "meecast-hours" || n->identifier() == "meecast-days")
+            n->remove();
+        delete n;
     }
-    if (!mine)
-        mine = new MNotification("meecast.forecast");
-    mine->setIdentifier(identifier);
-    mine->setSummary(summary);
-    mine->setBody(body);
-    if (!image.isEmpty())
-        mine->setImage(image);
-    mine->publish();
-    delete mine;
 }
 
 /* The two lists under the tile. The tile itself is 120x96 -- the size the
@@ -728,24 +777,38 @@ publishfeeditem(const QString& identifier, const QString& summary,
  * that holds one temperature and the wind. Everything else has to live where
  * there is room, and on Harmattan that is the notification feed. */
 void MyMWidget::updatefeed(){
+    static bool aufgeraeumt = false;
+    if (!aufgeraeumt) {
+        dropoldnotifications();
+        aufgeraeumt = true;
+    }
     if (!_forecast.valid)
         return;
 
     QStringList hours, days;
     for (int i = 0; i < _forecast.hours.size(); ++i)
-        hours << feedline(_forecast.hours.at(i), _forecast.windUnit);
+        hours << feedrow(feedline(_forecast.hours.at(i), _forecast.windUnit));
     for (int i = 0; i < _forecast.days.size(); ++i)
-        days << feedline(_forecast.days.at(i), _forecast.windUnit);
+        days << feedrow(feedline(_forecast.days.at(i), _forecast.windUnit));
 
+    /* Out with the old ones first: the feed would otherwise hold one pair per
+     * update, and the weather updates all day. */
+    feedinterface()->call("removeItemsBySourceName", QString(FEED_SOURCE));
+
+    /* The time of the forecast, not of now: an item stamped "now" climbs over
+     * everything else in the feed on every weather update. */
+    const QString stamp = QDateTime::currentDateTime().toString(Qt::ISODate);
     const QString station = _forecast.station;
+    const QString trenner = QString::fromUtf8(" \xc2\xb7 ");
+
     if (!hours.isEmpty())
-        publishfeeditem("meecast-hours",
-                        station + " - " + FEED_TR("Hours"),
-                        hours.join("\n"), _forecast.currentIconPath);
+        addfeeditem(station + trenner + FEED_TR("Hours"),
+                    hours.join("<br />"), _forecast.currentIconPath,
+                    "MeeCast", stamp);
     if (!days.isEmpty())
-        publishfeeditem("meecast-days",
-                        station + " - " + FEED_TR("Day"),
-                        days.join("\n"), _forecast.currentIconPath);
+        addfeeditem(station + trenner + FEED_TR("Day"),
+                    days.join("<br />"), _forecast.currentIconPath,
+                    "MeeCast", stamp);
     eventslog(QString("feed: hours=%1 days=%2").arg(hours.size()).arg(days.size()));
 }
 

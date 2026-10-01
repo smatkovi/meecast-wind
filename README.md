@@ -150,29 +150,42 @@ So since 1.2 the tile is drawn at the size it gets:
 
 A tap anywhere opens MeeCast.
 
-## The forecast in the notification feed
+## The forecast in the event feed
 
 The lists cannot fit in 120 x 96, so since 1.3 they live where there is room:
-two items in the events feed under the tile, rewritten on every update.
+in the **feed** of the Events view, shaped like the calendar's entry.
 
-* "<station> - Hours", five three-hourly periods
-* "<station> - Day", seven days
+That shape was read out of the live feed rather than guessed
+(`~/.config/meegotouchhome-nokia/eventsfeed.data`, an SQLite file; the calendar
+posts under `sourceName` `SyncFW-calendarfeed`): one item whose `body` is
+several lines of HTML, each a coloured bar and then grey text, joined with
+`<br />`.
 
-each line `15:00  18°  3 m/s SW`. The event type is
-`meecast.forecast` (`plugin/data/meecast.forecast.conf`), deliberately
-**without `class=system`**: that would make a banner pop over everything
-including the lock screen, and a forecast is information, not an alert. No
-`feedbackId` either -- a sound on every weather update would be a plague.
+    <font color='#4FA3DD'>&#x2503;</font><font color='#A0A0A0'>23:00  16°  4 m/s SSE</font><br />…
 
-The items are found again by `identifier` through
-`MNotification::notifications()`, not by an id kept in a file: notifications
-outlive the process and a reboot, and a file that disagreed with the system
-would leave a second item behind on every update.
+Two items, rewritten on every update:
 
-**A trap in the event type file:** its reader splits every line at the first
-`=` -- comment lines included. A `=` inside a comment becomes a key and ends
-up in the notification store (seen as `# **Kein class` there). The comments in
-`meecast.forecast.conf` therefore contain none.
+* "<station> · Hours", five three-hourly periods
+* "<station> · Day", seven days
+
+`com.nokia.home.EventFeed` on the session bus: `removeItemsBySourceName`
+first, then `addItem` twice. Three things that cost time elsewhere and are
+worth knowing here:
+
+* **`addItem` answers -1 and says nothing more** when one key is missing or
+  carries the wrong type -- nothing appears in the feed and there is no error
+  anywhere. The full set is `icon, title, body, imageList, timestamp, footer,
+  video, action, sourceName, sourceDisplayName`, with `imageList` a string
+  list, `video` a bool and `timestamp` a *string* (same as the Mastodon feed
+  daemon, `~/ps/mastodon-feed`, `daemon/src/feed.rs`).
+* **Remove before adding**, or the feed holds one more pair after every
+  weather update, all day.
+* The timestamp decides where the item sits in the feed.
+
+1.3 used `MNotification` for this, which was the wrong shelf: notifications
+are alerts, the feed is where standing information belongs. 1.4 drops those
+notifications once on the first update, so an upgrade does not leave them
+behind, and the `meecast.forecast` event type is gone from the package.
 
 ## Looking at the widget without the device
 
