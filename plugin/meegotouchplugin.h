@@ -101,6 +101,10 @@ public:
     void mousePressEvent(QGraphicsSceneMouseEvent *event);
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *event);
 
+    /* Writes the two forecast items into the events feed; called whenever the
+     * cache has been re-read. */
+    void updatefeed();
+
     void refreshwallpaper(bool new_wallpaper = false);
     void refresheventswidget(void);
 

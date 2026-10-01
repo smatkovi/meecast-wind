@@ -47,6 +47,10 @@ cp qml/WeatherPage.qml qml/FullWeatherPage.qml qml/WindRow.qml \
 if [ "$QML_ONLY" = no ]; then
     mkdir -p "$STAGE/usr/lib/meegotouch/applicationextensions"
     cp build/libevents-meecast.so "$STAGE/usr/lib/meegotouch/applicationextensions/"
+    # Der Ereignistyp fuer die beiden Eintraege im Benachrichtigungsbereich.
+    mkdir -p "$STAGE/usr/share/meegotouch/notifications/eventtypes"
+    cp plugin/data/meecast.forecast.conf \
+       "$STAGE/usr/share/meegotouch/notifications/eventtypes/"
 fi
 
 # Replaces: is what lets dpkg put these files over ones meecast owns while

@@ -48,36 +48,33 @@ namespace ForecastView {
 
 /* -- geometry ------------------------------------------------------------- */
 
-static const int Pad      = 12;
-static const int HeaderH  = 40;
-static const int CurrentH = 104;
-static const int SepH     = 2;
-static const int SectionH = 34;
-static const int RowH     = 34;
+/* The slot the home screen grants this extension is **fixed**:
+ * meegotouchhome's theme says
+ *
+ *   MApplicationExtensionAreaStyle#WeatherExtensionArea {
+ *       minimum-size: 12mm 9.6mm; preferred-size: ...; maximum-size: ...;
+ *   }
+ *
+ * which on this screen is 120 x 96 -- measured from inside the widget
+ * (see eventslog() in meegotouchplugin.cpp): the image was 480x636, the
+ * MImageWidget was 480x636, and the extension around it was 120x96. Minimum
+ * equals maximum, so it never grows; anything drawn bigger is simply clipped
+ * to the top-left corner. That is why a tile built at 480 px wide showed
+ * nothing but a station name and part of one temperature, however much was
+ * drawn into it.
+ *
+ * So the tile is drawn at the size it gets, and the forecast lists live in
+ * the notification feed underneath instead, where there is room for them. */
+static const int Pad      = 4;
+static const int RowH     = 26;
 
-const int Width = 480;
-
-/* Both lists, one under the other. There were tab headers here until the
- * hours and the days turned out to be wanted at the same time -- which hour
- * to leave, and what the rest of the week looks like -- and whichever tab was
- * showing, it was the other one that was wanted. The Events feed scrolls, so
- * height is the cheap thing to spend here; a tap that is not a tab is one
- * less thing that can go wrong inside the home screen process. */
-static const int HoursTop    = HeaderH + CurrentH + SepH;
-static const int HourRowsTop = HoursTop + SectionH;
-static const int DaysSep     = HourRowsTop + RowH * HourCount;
-static const int DaysTop     = DaysSep + SepH;
-static const int DayRowsTop  = DaysTop + SectionH;
-
-/* Pad at the foot as well: without it the last day sits flush on the edge of
- * the image and reads as cut off. */
-const int Height = DayRowsTop + RowH * DayCount + Pad;
+const int Width  = 120;
+const int Height = 96;
 
 /* The feed draws this over the user's wallpaper, so the panel stays mostly
  * transparent and leans on light text, the way the stock widget did. */
 static const QColor ColorPrimary   = QColor(255, 255, 255);
 static const QColor ColorSecondary = QColor(136, 147, 151);
-static const QColor ColorSeparator = QColor(255, 255, 255, 40);
 
 /* -- helpers -------------------------------------------------------------- */
 
@@ -163,61 +160,6 @@ windText(const QString& speed, const QString& direction, const QString& unit)
     return s;
 }
 
-/* One list, starting at `listTop` and never longer than `maxRows`. */
-static void
-drawRows(QPainter& p, const QList<Row>& rows, const QString& unit,
-         int listTop, int maxRows)
-{
-    const int iconSize  = 26;
-    const int arrowSize = 26;
-
-    /* No alternating row shading: a wash light enough not to fight the feed's
-     * own backdrop still made the text on every second line read as bold. */
-    for (int i = 0; i < rows.size() && i < maxRows; ++i) {
-        const int top = listTop + i * RowH;
-
-        const Row& r = rows.at(i);
-
-        p.setPen(ColorSecondary);
-        p.setFont(QFont("Nokia Pure", 14));
-        p.drawText(QRect(Pad, top, 128, RowH), Qt::AlignVCenter | Qt::AlignLeft, r.label);
-
-        const QImage icon = scaledIcon(r.iconPath, iconSize);
-        if (!icon.isNull())
-            p.drawImage(QPoint(Pad + 136, top + (RowH - icon.height()) / 2), icon);
-
-        p.setPen(ColorPrimary);
-        p.setFont(QFont("Nokia Pure", 15));
-        p.drawText(QRect(Pad + 170, top, 104, RowH), Qt::AlignVCenter | Qt::AlignRight, r.temperature);
-
-        const QRect arrowBox(Pad + 292, top + (RowH - arrowSize) / 2, arrowSize, arrowSize);
-        drawWindArrow(p, arrowBox, r.windDirection);
-
-        p.setPen(ColorSecondary);
-        p.setFont(QFont("Nokia Pure", 14));
-        p.drawText(QRect(arrowBox.right() + 8, top, Width - arrowBox.right() - 8 - Pad, RowH),
-                   Qt::AlignVCenter | Qt::AlignLeft,
-                   windText(r.windSpeed, r.windDirection, unit));
-    }
-}
-
-/* The heading over a list: the icon the tab header used to carry, and the
- * name of the list. */
-static void
-drawSection(QPainter& p, int top, const char *iconFile, const QString& label)
-{
-    const QImage icon = scaledIcon(QString(MEECAST_IMAGES_PATH) + iconFile, 26);
-    int x = Pad;
-    if (!icon.isNull()) {
-        p.drawImage(QPoint(x, top + (SectionH - icon.height()) / 2), icon);
-        x += icon.width() + 8;
-    }
-    p.setPen(ColorPrimary);
-    p.setFont(QFont("Nokia Pure Bold", 15));
-    p.drawText(QRect(x, top, Width - x - Pad, SectionH),
-               Qt::AlignVCenter | Qt::AlignLeft, label);
-}
-
 /* -- the widget ----------------------------------------------------------- */
 
 QImage
@@ -231,77 +173,55 @@ render(const Data& data)
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::SmoothPixmapTransform, true);
 
-    /* Header: station on the left, time of the last update on the right. */
-    p.setPen(ColorPrimary);
-    p.setFont(QFont("Nokia Pure", 17));
-    p.drawText(QRect(Pad, 0, Width - 2 * Pad - 150, HeaderH),
-               Qt::AlignVCenter | Qt::AlignLeft,
-               data.station.isEmpty() ? TR("Unknown") : data.station);
-
-    p.setPen(ColorSecondary);
-    p.setFont(QFont("Nokia Pure", 13));
-    p.drawText(QRect(Width - Pad - 150, 0, 150, HeaderH),
-               Qt::AlignVCenter | Qt::AlignRight, data.lastUpdate);
-
     if (!data.valid) {
         p.setPen(ColorSecondary);
-        p.setFont(QFont("Nokia Pure", 15));
-        p.drawText(QRect(Pad, HeaderH, Width - 2 * Pad, CurrentH),
-                   Qt::AlignCenter, TR("No data"));
+        p.setFont(QFont("Nokia Pure", 12));
+        p.drawText(QRect(0, 0, Width, Height), Qt::AlignCenter, TR("No data"));
         p.end();
         return image;
     }
 
-    /* Current conditions. */
-    const QImage icon = scaledIcon(data.currentIconPath, 88);
+    /* Top: the icon and the temperature. 120 px wide is not much -- the
+     * station name does not fit beside them and is dropped; whoever looks
+     * here knows which station they set. */
+    const QImage icon = scaledIcon(data.currentIconPath, 40);
     if (!icon.isNull())
-        p.drawImage(QPoint(Pad, HeaderH + (CurrentH - icon.height()) / 2), icon);
+        p.drawImage(QPoint(Pad, Pad), icon);
 
     p.setPen(ColorPrimary);
-    p.setFont(QFont("Nokia Pure Bold", 32));
-    p.drawText(QRect(Pad + 100, HeaderH + 6, 150, 58),
-               Qt::AlignVCenter | Qt::AlignLeft, data.currentTemperature);
+    p.setFont(QFont("Nokia Pure Bold", 22));
+    p.drawText(QRect(Pad + 44, Pad, Width - Pad - 44 - Pad, 40),
+               Qt::AlignVCenter | Qt::AlignRight, data.currentTemperature);
 
-    p.setPen(ColorSecondary);
-    p.setFont(QFont("Nokia Pure", 15));
-    p.drawText(QRect(Pad + 100, HeaderH + 64, Width - Pad - 100 - Pad, 32),
-               Qt::AlignVCenter | Qt::AlignLeft, data.description);
+    /* Then the wind now, and under it the strongest wind of the day: the
+     * reading of the moment says nothing about the afternoon, and the
+     * afternoon is what one dresses for. */
+    const int arrow = 18;
+    int y = Pad + 42;
 
-    const int curArrow = 30;
-    const QRect curArrowBox(Width - Pad - 190, HeaderH + 16, curArrow, curArrow);
-    drawWindArrow(p, curArrowBox, data.currentWindDirection);
-    p.setPen(ColorPrimary);
-    p.setFont(QFont("Nokia Pure", 16));
-    p.drawText(QRect(curArrowBox.right() + 8, curArrowBox.top(),
-                     Width - curArrowBox.right() - 8 - Pad, curArrow),
-               Qt::AlignVCenter | Qt::AlignLeft,
-               windText(data.currentWindSpeed, data.currentWindDirection, data.windUnit));
-
-    /* The day's strongest wind, under the current one. "3 m/s now" says
-     * nothing about the afternoon, and the afternoon is what one dresses
-     * for. "max" rather than a translated word: it reads the same in both
-     * languages the catalogue has here, and an untranslated sentence would
-     * read worse than an untranslated abbreviation. */
-    const QString dayWind = windText(data.dayWindSpeed, data.dayWindDirection,
-                                     data.windUnit);
-    if (!dayWind.isEmpty()) {
-        p.setPen(ColorSecondary);
-        p.setFont(QFont("Nokia Pure", 14));
-        p.drawText(QRect(curArrowBox.left(), curArrowBox.bottom() + 6,
-                         Width - curArrowBox.left() - Pad, 26),
-                   Qt::AlignVCenter | Qt::AlignLeft,
-                   TR("Day") + " max " + dayWind);
+    const QString now = windText(data.currentWindSpeed, data.currentWindDirection,
+                                 data.windUnit);
+    if (!now.isEmpty()) {
+        const QRect box(Pad, y + (RowH - arrow) / 2, arrow, arrow);
+        drawWindArrow(p, box, data.currentWindDirection);
+        p.setPen(ColorPrimary);
+        p.setFont(QFont("Nokia Pure", 12));
+        p.drawText(QRect(box.right() + 4, y, Width - box.right() - 4 - Pad, RowH),
+                   Qt::AlignVCenter | Qt::AlignLeft, now);
+        y += RowH;
     }
 
-    p.fillRect(QRect(Pad, HeaderH + CurrentH, Width - 2 * Pad, SepH), ColorSeparator);
-
-    drawSection(p, HoursTop, "/clock.png", TR("Hours"));
-    drawRows(p, data.hours, data.windUnit, HourRowsTop, HourCount);
-
-    p.fillRect(QRect(Pad, DaysSep, Width - 2 * Pad, SepH), ColorSeparator);
-
-    drawSection(p, DaysTop, "/day.png", TR("Day"));
-    drawRows(p, data.days, data.windUnit, DayRowsTop, DayCount);
+    /* Without the unit: it stands on the line above, and the whole line has
+     * 112 px. With it, the direction fell off the edge. */
+    if (!data.dayWindSpeed.isEmpty()) {
+        QString day = TR("Day") + " max " + data.dayWindSpeed;
+        if (!data.dayWindDirection.isEmpty())
+            day += " " + TR(data.dayWindDirection.toUtf8().constData());
+        p.setPen(ColorSecondary);
+        p.setFont(QFont("Nokia Pure", 10));
+        p.drawText(QRect(Pad, y, Width - 2 * Pad, RowH),
+                   Qt::AlignVCenter | Qt::AlignLeft, day);
+    }
 
     p.end();
     return image;

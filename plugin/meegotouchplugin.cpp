@@ -36,6 +36,36 @@
 #include <QSettings>
 #include <QGraphicsSceneMouseEvent>
 
+#include <QDateTime>
+#include <QFile>
+#include <QStringList>
+#include <QTextStream>
+#include <MNotification>
+
+#include <libintl.h>
+
+/* gettext, but never textdomain(): this is a shared library inside the home
+ * screen process and switching the process-wide domain would break every
+ * other extension loaded beside it. */
+#define FEED_TR(s) QString::fromUtf8(dgettext("omweather", s))
+
+/* Nothing inside the home screen process can be printed or looked at, so when
+ * the tile misbehaves there is otherwise nothing to go on. Touch
+ * ~/.meecast-events-debug and every repaint says what it drew and what size
+ * the feed actually granted it. */
+static void
+eventslog(const QString& line)
+{
+    static const QString flag = "/home/user/.meecast-events-debug";
+    if (!QFile::exists(flag))
+        return;
+    QFile f("/home/user/.meecast-events.log");
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Append))
+        return;
+    QTextStream(&f) << QDateTime::currentDateTime().toString("hh:mm:ss")
+                    << "  " << line << "\n";
+}
+
 // Debug
 #include <QFile>
 #include <QTextStream>
@@ -331,6 +361,10 @@ MyMWidget::MyMWidget(){
        * first SetCurrentData arrives, which may be a whole update period off. */
       reloadforecast();
       _events_image = new QImage(ForecastView::render(_forecast));
+      eventslog(QString("built: valid=%1 hours=%2 days=%3 image=%4x%5")
+                .arg(_forecast.valid).arg(_forecast.hours.size())
+                .arg(_forecast.days.size())
+                .arg(_events_image->width()).arg(_events_image->height()));
       _icon = new MImageWidget(_events_image);
       grabMouse();
 
@@ -629,10 +663,90 @@ void MyMWidget::refreshwallpaper(bool new_wallpaper){
 void MyMWidget::refresheventswidget(){
      *_events_image = ForecastView::render(_forecast);
      _icon->setImage(*_events_image);
+     eventslog(QString("refresh: image=%1x%2 icon=%3x%4 widget=%5x%6 valid=%7")
+               .arg(_events_image->width()).arg(_events_image->height())
+               .arg(_icon->size().width()).arg(_icon->size().height())
+               .arg(size().width()).arg(size().height())
+               .arg(_forecast.valid));
 }
 
 void MyMWidget::reloadforecast(){
      _forecast = ForecastView::read();
+     updatefeed();
+}
+
+/* One line of a list, for the feed: "15:00  18°  3 m/s SW". */
+static QString
+feedline(const ForecastView::Row& r, const QString& unit)
+{
+    QString s = r.label;
+    if (!r.temperature.isEmpty())
+        s += "  " + r.temperature;
+    if (!r.windSpeed.isEmpty()) {
+        s += "  " + r.windSpeed;
+        if (unit != "Beaufort scale")
+            s += " " + FEED_TR(unit.toUtf8().constData());
+    }
+    if (!r.windDirection.isEmpty())
+        s += " " + FEED_TR(r.windDirection.toUtf8().constData());
+    return s;
+}
+
+/* One item in the events feed, created on the first update and rewritten
+ * afterwards.
+ *
+ * Found by identifier rather than by a stored id: notifications outlive the
+ * process and a reboot, and MNotification::notifications() is the only thing
+ * that still knows them afterwards. Keeping an id in a file instead would
+ * leave a second item behind every time the file and the system disagreed.
+ */
+static void
+publishfeeditem(const QString& identifier, const QString& summary,
+                const QString& body, const QString& image)
+{
+    MNotification *mine = 0;
+    QList<MNotification *> all = MNotification::notifications();
+    for (int i = 0; i < all.size(); ++i) {
+        if (!mine && all.at(i)->identifier() == identifier)
+            mine = all.at(i);
+        else
+            delete all.at(i);
+    }
+    if (!mine)
+        mine = new MNotification("meecast.forecast");
+    mine->setIdentifier(identifier);
+    mine->setSummary(summary);
+    mine->setBody(body);
+    if (!image.isEmpty())
+        mine->setImage(image);
+    mine->publish();
+    delete mine;
+}
+
+/* The two lists under the tile. The tile itself is 120x96 -- the size the
+ * home screen's theme grants this extension, minimum equal to maximum -- and
+ * that holds one temperature and the wind. Everything else has to live where
+ * there is room, and on Harmattan that is the notification feed. */
+void MyMWidget::updatefeed(){
+    if (!_forecast.valid)
+        return;
+
+    QStringList hours, days;
+    for (int i = 0; i < _forecast.hours.size(); ++i)
+        hours << feedline(_forecast.hours.at(i), _forecast.windUnit);
+    for (int i = 0; i < _forecast.days.size(); ++i)
+        days << feedline(_forecast.days.at(i), _forecast.windUnit);
+
+    const QString station = _forecast.station;
+    if (!hours.isEmpty())
+        publishfeeditem("meecast-hours",
+                        station + " - " + FEED_TR("Hours"),
+                        hours.join("\n"), _forecast.currentIconPath);
+    if (!days.isEmpty())
+        publishfeeditem("meecast-days",
+                        station + " - " + FEED_TR("Day"),
+                        days.join("\n"), _forecast.currentIconPath);
+    eventslog(QString("feed: hours=%1 days=%2").arg(hours.size()).arg(days.size()));
 }
 
 void MyMWidget::mousePressEvent(QGraphicsSceneMouseEvent *event){

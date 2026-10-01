@@ -120,39 +120,59 @@ This is a syntax check only. Layout and real data still need the device.
 
 ## The Events view widget
 
-480 x 636, drawn into one `QImage` allocated once:
+**The slot is 120 x 96, and that is not negotiable.** meegotouchhome's theme
+says
 
-* station and the time of the last update,
-* the current conditions with the wind **now** and, under it, the strongest
-  wind of **today** over every period the cache holds for it ("Day max 7 m/s
-  NNE"). The reading of the moment says nothing about the afternoon, and the
-  afternoon is what one dresses for,
-* a heading "Hours" and the next five three-hourly periods,
-* a heading "Day" and the coming seven days,
+    MApplicationExtensionAreaStyle#WeatherExtensionArea {
+        minimum-size: 12mm 9.6mm;
+        preferred-size: 12mm 9.6mm;
+        maximum-size: 12mm 9.6mm;
+    }
 
-each forecast line with its own wind. A tap anywhere opens MeeCast.
+which on this screen is 120 x 96 px, minimum equal to maximum. Anything drawn
+bigger is clipped to the top-left corner. The tabbed 480 x 468 tile that 1.0
+shipped therefore never showed more than a station name and part of one
+temperature -- it looked like "there is only room for one day's temperature",
+because there was.
 
-**There were tab headers here until 1.1.** Hours and days turned out to be
-wanted at the same time -- which hour to leave, and what the rest of the week
-looks like -- and whichever tab was showing, it was the other one that was
-wanted. The Events feed scrolls, so height is the cheap thing to spend; both
-lists are simply drawn one under the other now. That also removes the tab
-hit-testing and `~/.config/com.meecast.omweather/eventsview.conf` -- a tap
-that is not a tab is one less thing that can go wrong inside the home screen
-process.
+Measured from inside the widget rather than guessed: `eventslog()` in
+`meegotouchplugin.cpp` writes image, `MImageWidget` and extension size to
+`~/.meecast-events.log` whenever `~/.meecast-events-debug` exists. It said
+`image=480x636 icon=480x636 widget=120x96`.
 
-No MButton and no CSS: the stock `meecast-extension.css` is never installed,
-so the tile takes its size from the image alone. Horizontal swipes are left
-alone -- the home screen owns those.
+So since 1.2 the tile is drawn at the size it gets:
 
-The extension lives in its own `mapplicationextensionrunner` process, which
-the home screen starts. Killing that runner does **not** bring it back; after
-installing a new `.so`, restart `meegotouchhome` (kill it, upstart respawns
-it) and the runner comes back with the new library.
+* the weather icon and the current temperature,
+* the wind now, with its arrow,
+* under it the strongest wind of **today**, over every period the cache holds
+  for it ("Day max 7 NNE" -- without the unit, which stands on the line above
+  and would push the direction off the edge).
 
-`gettext` is used as `dgettext("omweather", ...)`, never `textdomain()`: this
-is a shared library inside the home screen process and switching the
-process-wide domain would break every other extension loaded beside it.
+A tap anywhere opens MeeCast.
+
+## The forecast in the notification feed
+
+The lists cannot fit in 120 x 96, so since 1.3 they live where there is room:
+two items in the events feed under the tile, rewritten on every update.
+
+* "<station> - Hours", five three-hourly periods
+* "<station> - Day", seven days
+
+each line `15:00  18°  3 m/s SW`. The event type is
+`meecast.forecast` (`plugin/data/meecast.forecast.conf`), deliberately
+**without `class=system`**: that would make a banner pop over everything
+including the lock screen, and a forecast is information, not an alert. No
+`feedbackId` either -- a sound on every weather update would be a plague.
+
+The items are found again by `identifier` through
+`MNotification::notifications()`, not by an id kept in a file: notifications
+outlive the process and a reboot, and a file that disagreed with the system
+would leave a second item behind on every update.
+
+**A trap in the event type file:** its reader splits every line at the first
+`=` -- comment lines included. A `=` inside a comment becomes a key and ends
+up in the notification store (seen as `# **Kein class` there). The comments in
+`meecast.forecast.conf` therefore contain none.
 
 ## Looking at the widget without the device
 
