@@ -36,11 +36,6 @@
 #include <QSettings>
 #include <QGraphicsSceneMouseEvent>
 
-/* The selected tab lives next to the application's own settings so it
- * survives a reboot and an upgrade of this package. */
-static const char *TAB_SETTINGS_PATH =
-    "/home/user/.config/com.meecast.omweather/eventsview.conf";
-
 // Debug
 #include <QFile>
 #include <QTextStream>
@@ -332,16 +327,10 @@ MyMWidget::MyMWidget(){
       
       /* preparing for events widget */
       QGraphicsAnchorLayout *layout = new QGraphicsAnchorLayout();
-      {
-          QSettings settings(TAB_SETTINGS_PATH, QSettings::NativeFormat);
-          _tab = settings.value("tab", ForecastView::TabHours).toInt();
-          if (_tab < 0 || _tab >= ForecastView::TabCount)
-              _tab = ForecastView::TabHours;
-      }
       /* Read the cache straight away: the widget must be complete before the
        * first SetCurrentData arrives, which may be a whole update period off. */
       reloadforecast();
-      _events_image = new QImage(ForecastView::render(_forecast, _tab));
+      _events_image = new QImage(ForecastView::render(_forecast));
       _icon = new MImageWidget(_events_image);
       grabMouse();
 
@@ -633,12 +622,12 @@ void MyMWidget::refreshwallpaper(bool new_wallpaper){
         QFuture<void> f1 =  QtConcurrent::run(drawwallpaper, QImage(_image->copy()), QHash <QString, QString> (hash));
     }
 
-/* The Events view widget. Station, current conditions with wind, a pair of
- * tabs and eight rows of either the hourly or the daily forecast, each with
- * its own wind. Everything but the tab selection comes from the forecast
- * cache, read in reloadforecast(). */
+/* The Events view widget. Station, current conditions with the wind now and
+ * the strongest wind of the day, then the next hours and the coming days --
+ * both lists, one under the other, each line with its own wind. All of it
+ * comes from the forecast cache, read in reloadforecast(). */
 void MyMWidget::refresheventswidget(){
-     *_events_image = ForecastView::render(_forecast, _tab);
+     *_events_image = ForecastView::render(_forecast);
      _icon->setImage(*_events_image);
 }
 
@@ -657,26 +646,6 @@ void MyMWidget::mouseReleaseEvent(QGraphicsSceneMouseEvent *event){
         return;
     }
     _down = false;
-
-    /* Without data no tabs are drawn, so every tap opens the application. */
-    if (_icon && _forecast.valid){
-        /* The image is a child widget, and the feed may have scaled it, so
-         * ask against the size it actually has rather than image pixels. */
-        const QPointF p = _icon->mapFromParent(event->pos());
-        const int t = ForecastView::tabAt(p.x(), p.y(),
-                                          _icon->size().width(),
-                                          _icon->size().height());
-        if (t >= 0){
-            if (t != _tab){
-                _tab = t;
-                QSettings settings(TAB_SETTINGS_PATH, QSettings::NativeFormat);
-                settings.setValue("tab", _tab);
-                settings.sync();
-                refresheventswidget();
-            }
-            return;
-        }
-    }
 
     startapplication();
 }

@@ -91,14 +91,13 @@ private:
     QImage *_events_image;
     bool _down;
     ForecastView::Data _forecast;
-    int _tab;                 /* ForecastView::Tab, remembered across restarts */
 public:
 
     MyMWidget();
     ~MyMWidget();
    
-    /* Out of line since the release has to tell a tap on a tab header apart
-     * from a tap anywhere else, which opens the application as before. */
+    /* Out of line only so the press/release pair stays together: a tap
+     * anywhere on the widget opens the application. */
     void mousePressEvent(QGraphicsSceneMouseEvent *event);
     void mouseReleaseEvent(QGraphicsSceneMouseEvent *event);
 

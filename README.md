@@ -64,9 +64,10 @@ the widget and the app never disagree:
 
 | list  | rule |
 | --- | --- |
-| days | `GetDataForTime(midnight + 15h + 1s + n*24h)`, n = 0..7 |
+| days | `GetDataForTime(midnight + 15h + 1s + n*24h)`, n = 0..6 |
 | nights | `GetDataForTime(midnight + 3h + n*24h)` |
 | hours | `GetDataForTime(current_hour + n*3600, true)` where `StartTime()+60` matches, over 5 days |
+| today's strongest wind | the largest `WindSpeed()` over `GetDataForTime(midnight + n*3600)`, n = 0..23 |
 
 `midnight` there is the **station's** midnight, not the phone's: controller.cpp
 shifts into the station's zone, truncates the day with `gmtime`, then shifts
@@ -119,18 +120,35 @@ This is a syntax check only. Layout and real data still need the device.
 
 ## The Events view widget
 
-480 x 468, drawn into one `QImage` allocated once: station and time of the
-last update, the current conditions with wind, two tab headers, then eight
-rows of either the hourly or the daily forecast, each with its own wind. A tap
-on a tab header switches lists, a tap anywhere else opens MeeCast as before.
-The choice is remembered in
-`~/.config/com.meecast.omweather/eventsview.conf`.
+480 x 636, drawn into one `QImage` allocated once:
+
+* station and the time of the last update,
+* the current conditions with the wind **now** and, under it, the strongest
+  wind of **today** over every period the cache holds for it ("Day max 7 m/s
+  NNE"). The reading of the moment says nothing about the afternoon, and the
+  afternoon is what one dresses for,
+* a heading "Hours" and the next five three-hourly periods,
+* a heading "Day" and the coming seven days,
+
+each forecast line with its own wind. A tap anywhere opens MeeCast.
+
+**There were tab headers here until 1.1.** Hours and days turned out to be
+wanted at the same time -- which hour to leave, and what the rest of the week
+looks like -- and whichever tab was showing, it was the other one that was
+wanted. The Events feed scrolls, so height is the cheap thing to spend; both
+lists are simply drawn one under the other now. That also removes the tab
+hit-testing and `~/.config/com.meecast.omweather/eventsview.conf` -- a tap
+that is not a tab is one less thing that can go wrong inside the home screen
+process.
 
 No MButton and no CSS: the stock `meecast-extension.css` is never installed,
-so the tile takes its size from the image alone, and hit-testing two
-rectangles in `mouseReleaseEvent` is the least that can go wrong inside the
-home screen process. Horizontal swipes are left alone -- the home screen owns
-those.
+so the tile takes its size from the image alone. Horizontal swipes are left
+alone -- the home screen owns those.
+
+The extension lives in its own `mapplicationextensionrunner` process, which
+the home screen starts. Killing that runner does **not** bring it back; after
+installing a new `.so`, restart `meegotouchhome` (kill it, upstart respawns
+it) and the runner comes back with the new library.
 
 `gettext` is used as `dgettext("omweather", ...)`, never `textdomain()`: this
 is a shared library inside the home screen process and switching the

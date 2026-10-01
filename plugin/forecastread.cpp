@@ -208,7 +208,34 @@ read()
     tmp->tm_isdst = 0;
     midnight = mktime(tmp) - 3600 * timezone + 3600 * localtimezone;
 
-    for (int day = 0; day < RowCount; ++day) {
+    /* The strongest wind today, over every period the cache holds for it.
+     * The current reading is one moment; what decides the jacket is the
+     * afternoon. Stepping hourly walks the same period several times -- that
+     * costs nothing here and saves having to know the source's spacing, which
+     * differs between three-hourly and daily entries. */
+    {
+        double best = -1;
+        Core::Data *bestData = 0;
+        for (time_t t = midnight; t < midnight + 24 * 3600; t += 3600) {
+            Core::Data *d = dp->data().GetDataForTime(t);
+            if (!d)
+                continue;
+            d->WindSpeed().units(config->WindSpeedUnit());
+            if (d->WindSpeed().value(true) == INT_MAX)
+                continue;
+            const double v = d->WindSpeed().value();
+            if (v > best) {
+                best = v;
+                bestData = d;
+            }
+        }
+        if (bestData) {
+            out.dayWindSpeed     = QString::number(best, 'f', 0);
+            out.dayWindDirection = windDirectionString(bestData);
+        }
+    }
+
+    for (int day = 0; day < DayCount; ++day) {
         const time_t t = midnight + 15 * 3600 + 1 + (time_t)day * 24 * 3600;
         Core::Data *d = dp->data().GetDataForTime(t);
         if (!d)
@@ -226,7 +253,7 @@ read()
     tmp->tm_sec = 0; tmp->tm_min = 1; tmp->tm_isdst = 1;
     const time_t currentHour = mktime(tmp);   /* the phone's hour, as the app does */
 
-    for (int i = 0; out.hours.size() < RowCount && i < 5 * 24 * 3600; i += 3600) {
+    for (int i = 0; out.hours.size() < HourCount && i < 5 * 24 * 3600; i += 3600) {
         Core::Data *d = dp->data().GetDataForTime(currentHour + i, true);
         if (!d || d->StartTime() + 60 != currentHour + i)
             continue;

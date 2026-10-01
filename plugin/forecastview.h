@@ -30,21 +30,13 @@
 
 /* The widget reads the forecast cache itself rather than waiting to be fed
  * over D-Bus. com.meecast.applet's SetCurrentData carries only the current
- * item and no wind at all, so a tabbed hourly/daily view with wind on every
+ * item and no wind at all, so an hourly and a daily list with wind on every
  * line cannot be built from it without changing the interface and rebuilding
  * omweather-qml and predaemon in lockstep. Core parses the very same cache
  * the application shows, which also keeps the two from ever disagreeing.
  */
 
 namespace ForecastView {
-
-    /* Tabs, in the order they are drawn. Persisted by index, so do not
-     * renumber without migrating the stored value. */
-    enum Tab {
-        TabHours = 0,
-        TabDays  = 1,
-        TabCount = 2
-    };
 
     /* One line of the list. Empty wind strings mean the source left this
      * period without wind and the line simply omits it. */
@@ -67,13 +59,23 @@ namespace ForecastView {
         QString currentIconPath;
         QString currentWindSpeed;
         QString currentWindDirection;
+        /* The strongest wind of today, over all periods the cache has for it.
+         * The current reading alone says nothing about the afternoon, which
+         * is the whole reason to look at the wind before leaving. Empty when
+         * today has no wind anywhere in the cache. */
+        QString dayWindSpeed;
+        QString dayWindDirection;
         QString windUnit;       /* "m/s", "km/h", "mi/h" or "Beaufort scale" */
         QList<Row> hours;
         QList<Row> days;
     };
 
-    /* Number of forecast lines each tab shows. */
-    enum { RowCount = 8 };
+    /* How many lines each list shows. Both are drawn, one under the other:
+     * the hours answer "now and the next few hours", the days "the rest of
+     * the week", and switching between them with a tab meant the one you
+     * wanted was always the one not shown. Five hours is fifteen hours ahead
+     * at the three-hour spacing the sources deliver. */
+    enum { HourCount = 5, DayCount  = 7 };
 
     /* Size of the image handed to the Events view. */
     extern const int Width;
@@ -86,18 +88,7 @@ namespace ForecastView {
 
     /* Draws the whole widget. Never fails: without data it paints the station
      * name and a short notice, so tapping still opens the application. */
-    QImage render(const Data& data, int activeTab);
-
-    /* Where the tab headers ended up, in image coordinates. */
-    QRect tabRect(int tab);
-
-    /* Which tab a tap landed on, or -1 for anywhere else.
-     *
-     * Takes the tap and the widget's actual size rather than image pixels:
-     * MImageWidget scales the image to whatever width the Events feed grants
-     * the extension, and a test in 480-space would drift -- far enough, on a
-     * narrower feed, to put the tab band over the first forecast row. */
-    int tabAt(qreal x, qreal y, qreal widgetWidth, qreal widgetHeight);
+    QImage render(const Data& data);
 
 } // namespace ForecastView
 

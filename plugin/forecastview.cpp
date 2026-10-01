@@ -52,46 +52,32 @@ static const int Pad      = 12;
 static const int HeaderH  = 40;
 static const int CurrentH = 104;
 static const int SepH     = 2;
-static const int TabsH    = 48;
+static const int SectionH = 34;
 static const int RowH     = 34;
 
-const int Width  = 480;
-const int Height = HeaderH + CurrentH + SepH + TabsH + SepH + RowH * RowCount;
+const int Width = 480;
 
-static const int TabsTop = HeaderH + CurrentH + SepH;
-static const int RowsTop = TabsTop + TabsH + SepH;
+/* Both lists, one under the other. There were tab headers here until the
+ * hours and the days turned out to be wanted at the same time -- which hour
+ * to leave, and what the rest of the week looks like -- and whichever tab was
+ * showing, it was the other one that was wanted. The Events feed scrolls, so
+ * height is the cheap thing to spend here; a tap that is not a tab is one
+ * less thing that can go wrong inside the home screen process. */
+static const int HoursTop    = HeaderH + CurrentH + SepH;
+static const int HourRowsTop = HoursTop + SectionH;
+static const int DaysSep     = HourRowsTop + RowH * HourCount;
+static const int DaysTop     = DaysSep + SepH;
+static const int DayRowsTop  = DaysTop + SectionH;
+
+/* Pad at the foot as well: without it the last day sits flush on the edge of
+ * the image and reads as cut off. */
+const int Height = DayRowsTop + RowH * DayCount + Pad;
 
 /* The feed draws this over the user's wallpaper, so the panel stays mostly
  * transparent and leans on light text, the way the stock widget did. */
 static const QColor ColorPrimary   = QColor(255, 255, 255);
 static const QColor ColorSecondary = QColor(136, 147, 151);
 static const QColor ColorSeparator = QColor(255, 255, 255, 40);
-static const QColor ColorTabActive = QColor(255, 255, 255, 28);
-
-QRect
-tabRect(int tab)
-{
-    const int w = Width / TabCount;
-    return QRect(tab * w, TabsTop, w, TabsH);
-}
-
-int
-tabAt(qreal x, qreal y, qreal widgetWidth, qreal widgetHeight)
-{
-    if (widgetWidth <= 0 || widgetHeight <= 0)
-        return -1;
-
-    const qreal fy = y / widgetHeight;
-    if (fy < (qreal)TabsTop / Height || fy >= (qreal)(TabsTop + TabsH) / Height)
-        return -1;
-
-    const qreal fx = x / widgetWidth;
-    if (fx < 0 || fx >= 1)
-        return -1;
-
-    const int tab = (int)(fx * TabCount);
-    return (tab < 0 || tab >= TabCount) ? -1 : tab;
-}
 
 /* -- helpers -------------------------------------------------------------- */
 
@@ -177,16 +163,18 @@ windText(const QString& speed, const QString& direction, const QString& unit)
     return s;
 }
 
+/* One list, starting at `listTop` and never longer than `maxRows`. */
 static void
-drawRows(QPainter& p, const QList<Row>& rows, const QString& unit)
+drawRows(QPainter& p, const QList<Row>& rows, const QString& unit,
+         int listTop, int maxRows)
 {
     const int iconSize  = 26;
     const int arrowSize = 26;
 
     /* No alternating row shading: a wash light enough not to fight the feed's
      * own backdrop still made the text on every second line read as bold. */
-    for (int i = 0; i < rows.size() && i < RowCount; ++i) {
-        const int top = RowsTop + i * RowH;
+    for (int i = 0; i < rows.size() && i < maxRows; ++i) {
+        const int top = listTop + i * RowH;
 
         const Row& r = rows.at(i);
 
@@ -213,10 +201,27 @@ drawRows(QPainter& p, const QList<Row>& rows, const QString& unit)
     }
 }
 
+/* The heading over a list: the icon the tab header used to carry, and the
+ * name of the list. */
+static void
+drawSection(QPainter& p, int top, const char *iconFile, const QString& label)
+{
+    const QImage icon = scaledIcon(QString(MEECAST_IMAGES_PATH) + iconFile, 26);
+    int x = Pad;
+    if (!icon.isNull()) {
+        p.drawImage(QPoint(x, top + (SectionH - icon.height()) / 2), icon);
+        x += icon.width() + 8;
+    }
+    p.setPen(ColorPrimary);
+    p.setFont(QFont("Nokia Pure Bold", 15));
+    p.drawText(QRect(x, top, Width - x - Pad, SectionH),
+               Qt::AlignVCenter | Qt::AlignLeft, label);
+}
+
 /* -- the widget ----------------------------------------------------------- */
 
 QImage
-render(const Data& data, int activeTab)
+render(const Data& data)
 {
     QImage image(QSize(Width, Height), QImage::Format_ARGB32);
     image.fill(Qt::transparent);
@@ -272,42 +277,31 @@ render(const Data& data, int activeTab)
                Qt::AlignVCenter | Qt::AlignLeft,
                windText(data.currentWindSpeed, data.currentWindDirection, data.windUnit));
 
-    p.fillRect(QRect(Pad, HeaderH + CurrentH, Width - 2 * Pad, SepH), ColorSeparator);
-
-    /* Tabs. */
-    const char *labels[TabCount];
-    labels[TabHours] = "Hours";
-    labels[TabDays]  = "Day";
-
-    for (int t = 0; t < TabCount; ++t) {
-        const QRect r = tabRect(t);
-        const bool on = (t == activeTab);
-        if (on)
-            p.fillRect(r, ColorTabActive);
-
-        const QImage tabIcon = scaledIcon(
-            QString(MEECAST_IMAGES_PATH) + (t == TabHours ? "/clock.png" : "/day.png"), 28);
-        const QString text = TR(labels[t]);
-
-        p.setFont(QFont(on ? "Nokia Pure Bold" : "Nokia Pure", 15));
-        const int textW = p.fontMetrics().width(text);
-        const int block = (tabIcon.isNull() ? 0 : tabIcon.width() + 8) + textW;
-        int x = r.left() + (r.width() - block) / 2;
-
-        if (!tabIcon.isNull()) {
-            p.drawImage(QPoint(x, r.top() + (r.height() - tabIcon.height()) / 2), tabIcon);
-            x += tabIcon.width() + 8;
-        }
-        p.setPen(on ? ColorPrimary : ColorSecondary);
-        p.drawText(QRect(x, r.top(), textW, r.height()), Qt::AlignVCenter | Qt::AlignLeft, text);
-
-        if (on)
-            p.fillRect(QRect(r.left() + 16, r.bottom() - 2, r.width() - 32, 3), ColorPrimary);
+    /* The day's strongest wind, under the current one. "3 m/s now" says
+     * nothing about the afternoon, and the afternoon is what one dresses
+     * for. "max" rather than a translated word: it reads the same in both
+     * languages the catalogue has here, and an untranslated sentence would
+     * read worse than an untranslated abbreviation. */
+    const QString dayWind = windText(data.dayWindSpeed, data.dayWindDirection,
+                                     data.windUnit);
+    if (!dayWind.isEmpty()) {
+        p.setPen(ColorSecondary);
+        p.setFont(QFont("Nokia Pure", 14));
+        p.drawText(QRect(curArrowBox.left(), curArrowBox.bottom() + 6,
+                         Width - curArrowBox.left() - Pad, 26),
+                   Qt::AlignVCenter | Qt::AlignLeft,
+                   TR("Day") + " max " + dayWind);
     }
 
-    p.fillRect(QRect(Pad, TabsTop + TabsH, Width - 2 * Pad, SepH), ColorSeparator);
+    p.fillRect(QRect(Pad, HeaderH + CurrentH, Width - 2 * Pad, SepH), ColorSeparator);
 
-    drawRows(p, activeTab == TabDays ? data.days : data.hours, data.windUnit);
+    drawSection(p, HoursTop, "/clock.png", TR("Hours"));
+    drawRows(p, data.hours, data.windUnit, HourRowsTop, HourCount);
+
+    p.fillRect(QRect(Pad, DaysSep, Width - 2 * Pad, SepH), ColorSeparator);
+
+    drawSection(p, DaysTop, "/day.png", TR("Day"));
+    drawRows(p, data.days, data.windUnit, DayRowsTop, DayCount);
 
     p.end();
     return image;
